@@ -21,6 +21,7 @@ sudo ./setup_dante.sh -a 203.0.113.5 -a 198.51.100.0/24 -p 1090
 
 
 - `-a <ip_or_cidr>` – Add one or more IP addresses or CIDR ranges (comma-separated) that are allowed to use the proxy. You can repeat the option.
+- `-r <ip_or_cidr>` – Remove one or more IP addresses or CIDR ranges (comma-separated) from the allow-list. You can repeat the option.
 - `-p <port>` – Port that the Dante server should listen on. Defaults to `1080`.
 - `-h` – Show the built-in help text.
 
@@ -33,4 +34,4 @@ The script will:
    clients.
 5. Enable and restart the `danted` systemd service.
 
-After the script completes successfully, the Dante server will be listening on the requested port and only the IPs/CIDR blocks supplied through the `-a` option will be permitted.
+After the script completes successfully, the Dante server will be listening on the requested port and only the IPs/CIDR blocks that remain after applying any `-a` and `-r` options will be permitted.
