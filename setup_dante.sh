@@ -102,13 +102,13 @@ write_config() {
         echo "user.privileged: root"
         echo "user.notprivileged: nobody"
         echo "user.libwrap: nobody"
-        echo "client pass {"
         for cidr in "${allow_list[@]}"; do
+            echo "client pass {"
             echo "    from: $cidr"
+            echo "    to: 0.0.0.0/0"
+            echo "    log: connect disconnect error"
+            echo "}"
         done
-        echo "    to: 0.0.0.0/0"
-        echo "    log: connect disconnect error"
-        echo "}"
         echo "client block {"
         echo "    from: 0.0.0.0/0"
         echo "    to: 0.0.0.0/0"
