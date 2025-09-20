@@ -3,12 +3,12 @@ set -euo pipefail
 
 usage() {
     cat <<USAGE
-Usage: $0 -a <ip_or_cidr> [<ip_or_cidr> ...] [-a <ip_or_cidr> [<ip_or_cidr> ...]] ... [-p <port>]
+
+Usage: $0 -a <ip_or_cidr>[,<ip_or_cidr>...] [-a <ip_or_cidr>[,<ip_or_cidr>...]] ... [-p <port>]
 
 Options:
-  -a    Supply one or more client IP addresses or networks (CIDR) allowed to use the proxy. You can
-        list multiple values after a single -a separated by spaces or commas, and you may repeat
-        the option as needed. At least one allow-list entry is required.
+  -a    Comma-separated list of client IP addresses or networks (CIDR) allowed to use the proxy.
+        Repeat the option to add more entries. At least one allow-list entry is required.
   -p    Port that Dante should listen on (default: 1080).
   -h    Display this help message.
 USAGE
@@ -35,7 +35,7 @@ split_and_append_ips() {
     local -a entries octets
     local old_ifs=$IFS
 
-    IFS=', ' read -ra entries <<< "$input"
+    IFS=',' read -ra entries <<< "$input"
     IFS=$old_ifs
 
     for entry in "${entries[@]}"; do
@@ -139,60 +139,37 @@ main() {
     local port=1080
     ALLOW_LIST=()
 
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -a)
-                shift
-                if [[ $# -eq 0 || $1 == -* ]]; then
-                    echo "[ERROR] Option -a requires at least one IP address or CIDR argument." >&2
-                    usage
-                    exit 1
-                fi
-                while [[ $# -gt 0 && $1 != -* ]]; do
-                    split_and_append_ips "$1"
-                    shift
-                done
+    while getopts ":a:p:h" opt; do
+        case $opt in
+            a)
+                split_and_append_ips "$OPTARG"
                 ;;
-            -p)
-                shift
-                if [[ $# -eq 0 || $1 == -* ]]; then
-                    echo "[ERROR] Option -p requires a numeric port argument." >&2
-                    usage
-                    exit 1
-                fi
-                validate_port "$1"
-                port=$1
-                shift
+            p)
+                validate_port "$OPTARG"
+                port=$OPTARG
                 ;;
-            -h|--help)
+            h)
                 usage
                 exit 0
                 ;;
-            --)
-                shift
-                break
-                ;;
-            -*)
-                echo "[ERROR] Invalid option: $1" >&2
+            :)
+                echo "[ERROR] Option -$OPTARG requires an argument." >&2
                 usage
                 exit 1
                 ;;
-            *)
-                echo "[ERROR] Unexpected argument: $1" >&2
+            \?)
+                echo "[ERROR] Invalid option: -$OPTARG" >&2
                 usage
                 exit 1
                 ;;
         esac
     done
 
-    if [[ $# -gt 0 ]]; then
-        echo "[ERROR] Unexpected argument(s): $*" >&2
-        usage
-        exit 1
-    fi
+
+    shift $((OPTIND - 1))
 
     if [[ ${#ALLOW_LIST[@]} -eq 0 ]]; then
-        echo "[ERROR] At least one allowed IP/CIDR must be provided with -a." >&2
+        echo "[ERROR] At least one -a option specifying allowed IP/CIDR is required." >&2
         usage
         exit 1
     fi

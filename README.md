@@ -19,7 +19,8 @@ sudo ./setup_dante.sh -a 203.0.113.5 -a 198.51.100.0/24 -p 1090
 
 ### Options
 
-- `-a <ip_or_cidr>` – Add one or more IP addresses or CIDR ranges that are allowed to use the proxy. Provide additional addresses after the same `-a` separated by spaces or commas, or repeat the option multiple times.
+
+- `-a <ip_or_cidr>` – Add one or more IP addresses or CIDR ranges (comma-separated) that are allowed to use the proxy. You can repeat the option.
 - `-p <port>` – Port that the Dante server should listen on. Defaults to `1080`.
 - `-h` – Show the built-in help text.
 
