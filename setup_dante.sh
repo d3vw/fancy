@@ -3,6 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<USAGE
+
 Usage: $0 -a <ip_or_cidr>[,<ip_or_cidr>...] [-a <ip_or_cidr>[,<ip_or_cidr>...]] ... [-p <port>]
 
 Options:
@@ -163,6 +164,7 @@ main() {
                 ;;
         esac
     done
+
 
     shift $((OPTIND - 1))
 
