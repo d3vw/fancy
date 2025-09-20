@@ -60,6 +60,9 @@ split_and_append_ips() {
                 exit 1
             fi
         done
+        if [[ $entry != */* ]]; then
+            entry+="/32"
+        fi
         ALLOW_LIST+=("$entry")
     done
 }
