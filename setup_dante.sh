@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<USAGE
+Usage: $0 -a <ip_or_cidr> [<ip_or_cidr> ...] [-a <ip_or_cidr> [<ip_or_cidr> ...]] ... [-p <port>]
+
+Options:
+  -a    Supply one or more client IP addresses or networks (CIDR) allowed to use the proxy. You can
+        list multiple values after a single -a separated by spaces or commas, and you may repeat
+        the option as needed. At least one allow-list entry is required.
+  -p    Port that Dante should listen on (default: 1080).
+  -h    Display this help message.
+USAGE
+}
+
+require_root() {
+    if [[ $(id -u) -ne 0 ]]; then
+        echo "[ERROR] This script must be run as root." >&2
+        exit 1
+    fi
+}
+
+validate_port() {
+    local port=$1
+    if ! [[ $port =~ ^[0-9]+$ ]] || ((port < 1 || port > 65535)); then
+        echo "[ERROR] Invalid port: $port. Must be an integer between 1 and 65535." >&2
+        exit 1
+    fi
+}
+
+split_and_append_ips() {
+    local input=$1
+    local entry ip octet
+    local -a entries octets
+    local old_ifs=$IFS
+
+    IFS=', ' read -ra entries <<< "$input"
+    IFS=$old_ifs
+
+    for entry in "${entries[@]}"; do
+        entry=$(echo "$entry" | xargs)
+        if [[ -z $entry ]]; then
+            continue
+        fi
+        if ! [[ $entry =~ ^([0-9]{1,3}(\.[0-9]{1,3}){3})(/(3[0-2]|[12]?[0-9]))?$ ]]; then
+            echo "[ERROR] Invalid IPv4 or CIDR block: $entry" >&2
+            exit 1
+        fi
+        # basic octet check
+        ip=${entry%%/*}
+
+        old_ifs=$IFS
+        IFS='.' read -r -a octets <<< "$ip"
+        IFS=$old_ifs
+
+        for octet in "${octets[@]}"; do
+            if ((octet < 0 || octet > 255)); then
+                echo "[ERROR] Invalid IPv4 address octet in: $entry" >&2
+                exit 1
+            fi
+        done
+        ALLOW_LIST+=("$entry")
+    done
+}
+
+get_default_interface() {
+    local iface
+    iface=$(ip route show default 2>/dev/null | awk '/default/ {print $5; exit}')
+    if [[ -z $iface ]]; then
+        echo "[ERROR] Could not determine the default network interface." >&2
+        exit 1
+    fi
+    echo "$iface"
+}
+
+backup_config() {
+    local config_path=$1
+    if [[ -f $config_path ]]; then
+        local timestamp
+        timestamp=$(date +%Y%m%d%H%M%S)
+        cp "$config_path" "${config_path}.bak-${timestamp}"
+    fi
+}
+
+write_config() {
+    local config_path=$1
+    local port=$2
+    local iface=$3
+    shift 3
+    local allow_list=("$@")
+
+    {
+        echo "logoutput: syslog"
+        echo "internal: 0.0.0.0 port = $port"
+        echo "external: $iface"
+        echo "clientmethod: none"
+        echo "socksmethod: none"
+        echo "user.privileged: root"
+        echo "user.notprivileged: nobody"
+        echo "user.libwrap: nobody"
+        echo "client pass {"
+        for cidr in "${allow_list[@]}"; do
+            echo "    from: $cidr"
+        done
+        echo "    to: 0.0.0.0/0"
+        echo "    log: connect disconnect error"
+        echo "}"
+        echo "client block {"
+        echo "    from: 0.0.0.0/0"
+        echo "    to: 0.0.0.0/0"
+        echo "    log: connect error"
+        echo "}"
+        for cidr in "${allow_list[@]}"; do
+            echo "pass {"
+            echo "    from: $cidr"
+            echo "    to: 0.0.0.0/0"
+            echo "    protocol: tcp udp"
+            echo "    log: connect disconnect error"
+            echo "}"
+        done
+        echo "block {"
+        echo "    from: 0.0.0.0/0"
+        echo "    to: 0.0.0.0/0"
+        echo "    log: connect error"
+        echo "}"
+    } > "$config_path"
+}
+
+restart_service() {
+    systemctl daemon-reload
+    systemctl enable danted
+    systemctl restart danted
+}
+
+main() {
+    require_root
+
+    local port=1080
+    ALLOW_LIST=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -a)
+                shift
+                if [[ $# -eq 0 || $1 == -* ]]; then
+                    echo "[ERROR] Option -a requires at least one IP address or CIDR argument." >&2
+                    usage
+                    exit 1
+                fi
+                while [[ $# -gt 0 && $1 != -* ]]; do
+                    split_and_append_ips "$1"
+                    shift
+                done
+                ;;
+            -p)
+                shift
+                if [[ $# -eq 0 || $1 == -* ]]; then
+                    echo "[ERROR] Option -p requires a numeric port argument." >&2
+                    usage
+                    exit 1
+                fi
+                validate_port "$1"
+                port=$1
+                shift
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                echo "[ERROR] Invalid option: $1" >&2
+                usage
+                exit 1
+                ;;
+            *)
+                echo "[ERROR] Unexpected argument: $1" >&2
+                usage
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ $# -gt 0 ]]; then
+        echo "[ERROR] Unexpected argument(s): $*" >&2
+        usage
+        exit 1
+    fi
+
+    if [[ ${#ALLOW_LIST[@]} -eq 0 ]]; then
+        echo "[ERROR] At least one allowed IP/CIDR must be provided with -a." >&2
+        usage
+        exit 1
+    fi
+
+    echo "[INFO] Installing Dante server package..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y dante-server
+
+    local config_path="/etc/danted.conf"
+    local iface
+    iface=$(get_default_interface)
+
+    echo "[INFO] Backing up existing configuration (if any)..."
+    backup_config "$config_path"
+
+    echo "[INFO] Writing new configuration..."
+    write_config "$config_path" "$port" "$iface" "${ALLOW_LIST[@]}"
+
+    echo "[INFO] Restarting Dante service..."
+    restart_service
+
+    echo "[SUCCESS] Dante server is configured to listen on port $port"
+    echo "          Allowed clients: ${ALLOW_LIST[*]}"
+    echo "          Default interface: $iface"
+}
+
+main "$@"
