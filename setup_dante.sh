@@ -189,6 +189,31 @@ restart_service() {
     systemctl restart danted
 }
 
+is_package_installed() {
+    local package=$1
+
+    if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"; then
+        return 0
+    fi
+
+    return 1
+}
+
+ensure_dante_installed() {
+    local package="dante-server"
+
+    echo "[INFO] Checking for $package package..."
+    if is_package_installed "$package"; then
+        echo "[INFO] $package is already installed. Skipping installation."
+        return
+    fi
+
+    echo "[INFO] Installing Dante server package..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y "$package"
+}
+
 main() {
     require_root
 
@@ -233,6 +258,10 @@ main() {
 
     read_existing_allow_list "$config_path"
 
+    if [[ ${#ALLOW_LIST[@]} -gt 0 ]]; then
+        echo "[INFO] Detected existing allowed clients: ${ALLOW_LIST[*]}"
+    fi
+
     if [[ ${#ALLOW_LIST[@]} -eq 0 && ${#ADD_LIST[@]} -eq 0 ]]; then
         echo "[ERROR] No existing allow-list entries found. Use -a to specify at least one client IP/CIDR." >&2
         usage
@@ -260,10 +289,7 @@ main() {
         exit 1
     fi
 
-    echo "[INFO] Installing Dante server package..."
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y dante-server
+    ensure_dante_installed
 
     local iface
     iface=$(get_default_interface)
