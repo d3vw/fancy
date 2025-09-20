@@ -27,11 +27,11 @@ sudo ./setup_dante.sh -a 203.0.113.5 -a 198.51.100.0/24 -p 1090
 
 The script will:
 
-1. Install the `dante-server` package via `apt` if it is not already installed.
+1. Verify whether the `dante-server` package is already present and only install it when required.
 2. Detect the default network interface used for outbound traffic.
 3. Back up any existing `/etc/danted.conf` file with a timestamp suffix.
 4. Write a new configuration that only allows the specified client networks and uses a passwordless SOCKS policy for those
    clients.
 5. Enable and restart the `danted` systemd service.
 
-After the script completes successfully, the Dante server will be listening on the requested port and only the IPs/CIDR blocks that remain after applying any `-a` and `-r` options will be permitted.
+After the script completes successfully, the Dante server will be listening on the requested port and only the IPs/CIDR blocks that remain after applying any `-a` and `-r` options will be permitted. Re-running the script will preserve the existing allow-list entries and append any new IPs you provide with `-a`.
